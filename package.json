@@ -1,0 +1,20 @@
+{
+  "name": "docker-board",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "build": "node scripts/build.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "express": "5.1.0",
+    "mysql2": "3.24.5"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.10"
+  }
+}

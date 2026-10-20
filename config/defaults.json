@@ -1,0 +1,5 @@
+{
+  "title": "모아보드",
+  "port": 3000,
+  "dataDir": "data"
+}
