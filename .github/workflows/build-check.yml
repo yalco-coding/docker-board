@@ -1,4 +1,4 @@
-name: Build and check
+name: Build, check and publish
 
 on:
   push:
@@ -6,11 +6,16 @@ on:
 
 permissions:
   contents: read
+  packages: write
+
+concurrency:
+  group: docker-board-publish-main
+  cancel-in-progress: false
 
 jobs:
   build-check:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     defaults:
       run:
         shell: bash
@@ -38,6 +43,38 @@ jobs:
       - name: Checks passed
         run: echo "BUILD_AND_CHECK_OK"
 
+      - name: Prepare image references
+        run: |
+          OWNER=$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')
+          IMAGE="ghcr.io/$OWNER/docker-board"
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+          echo "VERSION_TAG=$EXPECTED_VERSION" >> "$GITHUB_ENV"
+          echo "COMMIT_TAG=sha-$GITHUB_SHA" >> "$GITHUB_ENV"
+
+      - name: Log in to GHCR
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+      - name: Tag and push tested image
+        run: |
+          docker tag docker-board:ci "$IMAGE:$COMMIT_TAG"
+          docker tag docker-board:ci "$IMAGE:$VERSION_TAG"
+          docker push "$IMAGE:$COMMIT_TAG"
+          docker push "$IMAGE:$VERSION_TAG"
+
+      - name: Record published image
+        run: |
+          docker buildx imagetools inspect "$IMAGE:$COMMIT_TAG" --format '{{json .Manifest}}' > manifest.json
+          DIGEST=$(jq --exit-status --raw-output '.digest | select(test("^sha256:[0-9a-f]{64}$"))' manifest.json)
+          {
+            echo '## Published image'
+            echo "- Commit: $GITHUB_SHA"
+            echo "- Version tag: $IMAGE:$VERSION_TAG"
+            echo "- Commit tag: $IMAGE:$COMMIT_TAG"
+            echo "- Deploy reference: $IMAGE@$DIGEST"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Show test logs
         if: always()
         run: docker compose -p docker-board-ci -f compose.ci.yaml logs --no-color
@@ -45,3 +82,7 @@ jobs:
       - name: Clean up test services
         if: always()
         run: docker compose -p docker-board-ci -f compose.ci.yaml down --volumes
+
+      - name: Log out of GHCR
+        if: always()
+        run: docker logout ghcr.io
