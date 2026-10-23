@@ -1,0 +1,47 @@
+name: Build and check
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    env:
+      EXPECTED_VERSION: 1.1.0
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Build image
+        run: docker compose -p docker-board-ci -f compose.ci.yaml build app
+
+      - name: Start test services
+        run: docker compose -p docker-board-ci -f compose.ci.yaml up -d --wait --wait-timeout 90
+
+      - name: Check responses
+        run: |
+          curl --fail --silent --show-error --max-time 5 http://127.0.0.1:18080/health | tee health.json
+          jq --exit-status '.status == "ok" and .storage == "mysql"' health.json
+          curl --fail --silent --show-error --max-time 5 http://127.0.0.1:18080/version | tee version.json
+          jq --exit-status --arg expected "$EXPECTED_VERSION" '.version == $expected' version.json
+
+      - name: Checks passed
+        run: echo "BUILD_AND_CHECK_OK"
+
+      - name: Show test logs
+        if: always()
+        run: docker compose -p docker-board-ci -f compose.ci.yaml logs --no-color
+
+      - name: Clean up test services
+        if: always()
+        run: docker compose -p docker-board-ci -f compose.ci.yaml down --volumes
